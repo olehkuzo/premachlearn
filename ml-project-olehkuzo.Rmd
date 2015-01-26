@@ -1,0 +1,102 @@
+---
+title: "Machine learning project"
+author: "Oleh Kuzo"
+date: "Sunday, January 25, 2015"
+output: html_document
+---
+
+
+### Get and clean up data
+
+First let's load the data, filter features that have non-null values only. After the cleanup let's split training set into 70% dataset for training and rest 30% for validation.
+
+```{r}
+library(caret)
+
+trainingraw <- read.table("pml-training.csv",sep=",",na.strings = c("NA",""),header=TRUE)
+testing <- read.table("pml-testing.csv",sep=",",na.strings = c("NA",""),header=TRUE)
+
+inTrain <- createDataPartition(trainingraw$classe, p=0.70, list=FALSE)
+training <- trainingraw[inTrain,]
+validation <- trainingraw[-inTrain,]
+
+training<-training[,colSums(is.na(training)) == 0]
+classe<-training$classe
+nums <- sapply(training, is.numeric)
+training<-cbind(classe,training[,nums])
+training$X<-training$num_window<-NULL
+
+validation<-validation[,colSums(is.na(validation)) == 0]
+vclasse<-validation$classe
+vnums <- sapply(validation, is.numeric)
+validation<-cbind(vclasse,validation[,vnums])
+colnames(validation)[1]<-"classe"
+validation$X<-validation$num_window<-NULL
+
+testing<-testing[,colSums(is.na(testing)) == 0]
+tnums <- sapply(testing, is.numeric)
+testing<-testing[,tnums]
+testing$X<-testing$num_window<-NULL
+```
+
+
+### Model building
+
+In order to find the best model we will build three models: recursive partitioning, LDA and random forests and then compare accuracies. Let's start with recursive partitioning: 
+```{r, eval=FALSE}
+fitRpart <- train(training$classe~., data=training, method="rpart")
+fancyRpartPlot(fitRpart$finalModel)
+fitRpart$results 
+```
+We have 40% accuracy, so let's try lda:
+```{r, eval=FALSE}
+fitLda <- train(training$classe~., data=training, method="lda")
+fitLda$results
+```
+Lda yields 70%, and lastly let's try random forest model. It takes a long time to compute so saving fitted model into file to avoid rumnning training algorithm twice.
+```{r, eval=FALSE}
+fitRF <- train(training$classe~., data=training, method="rf")
+save(fit,file="fitRF.RData")
+```
+```{r, eval=FALSE}
+load(file = "./fitRF.RData")
+fitRF$results
+```
+Random forest gives us ~97% accuracy, so we will use RF in our prediction.
+
+### Cross validation
+
+Now that we decided to use random forest model let's estimate the error by performing a cross validation with the rest of data from the dataset. 
+```{r, eval=FALSE}
+traincontrol <- trainControl(method = "cv", number = 5)
+```
+```{r,eval=FALSE}
+fit_crossvalidation <- train(validation$classe~.,data=validation, method="rf",trControl=traincontrol)
+save(fit_crossvalidation,file="fit_crossvalidation.RData")
+```
+```{r, eval=FALSE}
+load(file="./fit_crossvalidation.RData")
+fit_crossvalidation$resample
+fit_crossvalidation$results
+confusionMatrix(predict(fit_crossvalidation, newdata=validation), validation$classe)
+```
+The cross validation estimate yuields value of `0.54%`:
+```{r, eval=FALSE}
+fit_crossvalidation$finalModel
+```
+
+### Test cases
+
+Now, to predict the classe of the testing dataset, we will use random forest model and output the results to files to upload for course project:
+```{r, eval=FALSE}
+test_prediction<-predict(fitRF, newdata=testing)
+test_prediction
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(test_prediction)
+```
